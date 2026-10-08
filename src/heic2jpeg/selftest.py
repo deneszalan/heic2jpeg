@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from PIL import ExifTags, Image, ImageDraw
@@ -17,10 +18,11 @@ from PySide6.QtCore import QEventLoop, QSettings
 from PySide6.QtWidgets import QApplication
 
 from . import __version__
-from .converter import ConversionOptions, convert_file
+from .converter import ConversionOptions, SourceFile, convert_file
 from .gui.file_model import Status
 from .gui.main_window import MainWindow
 from .gui.theme import ThemeManager
+from .gui.workers import ConversionWorker
 
 SAMPLES = [
     ("IMG_4021.HEIC", (64, 140, 230), (255, 190, 70), (40, 120, 80)),
@@ -62,6 +64,25 @@ def _settle(app: QApplication, seconds: float = 0.5) -> None:
         time.sleep(0.01)
 
 
+def _benchmark(photos: list[Path], out: Path) -> str:
+    """Times the same batch sequentially, on threads, and through the window's worker."""
+    sources = [p for p in photos if p.suffix.lower() == ".heic"]
+    results = []
+    for workers in (1, 4):
+        target = out / f"threads{workers}"
+        start = time.perf_counter()
+        with ThreadPoolExecutor(workers) as pool:
+            list(pool.map(lambda p: convert_file(p, ConversionOptions(output_dir=target)), sources))
+        results.append(f"{workers} thread(s) {time.perf_counter() - start:.2f} s")
+    worker = ConversionWorker(
+        [(str(p), SourceFile(p)) for p in sources], ConversionOptions(output_dir=out / "worker"), workers=4
+    )
+    start = time.perf_counter()
+    worker.run()  # synchronously, without an event loop
+    results.append(f"ConversionWorker.run {time.perf_counter() - start:.2f} s")
+    return ", ".join(results)
+
+
 class _Clock:
     def __init__(self, log: list[str]):
         self._log = log
@@ -100,6 +121,8 @@ def run_selftest(app: QApplication, theme: ThemeManager, report_dir: str) -> int
 
         probe = convert_file(photos / SAMPLES[0][0], ConversionOptions(output_dir=work / "probe"))
         clock.lap(f"converted one photo directly ({probe.output_size} bytes)")
+        log.append("Benchmark: " + _benchmark(sorted(photos.iterdir()), work / "bench"))
+        clock.lap("benchmark")
 
         settings = QSettings(str(work / "settings.ini"), QSettings.Format.IniFormat)
         window = MainWindow(theme, settings)
