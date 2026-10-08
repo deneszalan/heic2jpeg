@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heic2jpeg"
+dynamic = ["version"]
+description = "A friendly desktop app that converts HEIC/HEIF photos (e.g. from iPhones) to JPEG."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=11.0",
+    "pillow-heif>=1.0",
+    "PySide6-Essentials>=6.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-qt>=4.4"]
+build = ["pyinstaller>=6.10"]
+
+[project.gui-scripts]
+heic2jpeg = "heic2jpeg.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "heic2jpeg.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+heic2jpeg = ["resources/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

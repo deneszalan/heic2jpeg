@@ -1,0 +1,63 @@
+name: Build Windows app
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # lets version tags publish a GitHub release
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,build]"
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Build the portable .exe
+        run: pyinstaller --noconfirm packaging/heic2jpeg.spec
+
+      - name: Self-test the .exe
+        shell: pwsh
+        run: |
+          $exe = Get-Item "dist\HEIC-to-JPEG-Converter.exe"
+          "Size: {0:N1} MB" -f ($exe.Length / 1MB)
+          $timer = [Diagnostics.Stopwatch]::StartNew()
+          $process = Start-Process -FilePath $exe.FullName -ArgumentList "--selftest", "selftest" -Wait -PassThru
+          "Self-test took {0:N1} s (including unpacking)" -f $timer.Elapsed.TotalSeconds
+          Get-Content selftest\selftest.txt
+          if ($process.ExitCode -ne 0) { throw "Self-test failed with exit code $($process.ExitCode)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HEIC-to-JPEG-Converter
+          path: dist/HEIC-to-JPEG-Converter.exe
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-report
+          path: selftest/
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" "dist/HEIC-to-JPEG-Converter.exe" --title "HEIC to JPEG Converter ${{ github.ref_name }}" --generate-notes
