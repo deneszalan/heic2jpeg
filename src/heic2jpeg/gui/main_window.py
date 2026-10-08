@@ -605,15 +605,18 @@ class MainWindow(QMainWindow):
             text = f"Done! {plural(len(converted))} converted in {elapsed}."
             kind = "success"
         else:
-            text = "Nothing was converted."
+            text = "" if skipped or failed else "Nothing was converted."
             kind = "warning"
         if skipped:
             text += f" {plural(skipped)} skipped because the JPEG already existed."
         if failed:
             text += f" {plural(failed)} could not be converted — hover over {'it' if failed == 1 else 'them'} to see why."
             kind = "warning" if converted else "error"
-        self._set_status(text, kind)
+        self._set_status(text.strip(), kind)
         self._progress.hide()
+        first_failure = next((i for i in batch if i.status is Status.FAILED), None)
+        if first_failure is not None and (row := self._model.row_of(first_failure.key)) is not None:
+            self._table.scrollTo(self._model.index(row, 0))
 
         self._last_output = self._output_location(converted)
         self._open_button.setVisible(self._last_output is not None)

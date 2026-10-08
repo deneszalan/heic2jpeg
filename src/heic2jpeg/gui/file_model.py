@@ -154,6 +154,9 @@ class FileTableModel(QAbstractTableModel):
     def item(self, row: int) -> FileItem:
         return self._items[row]
 
+    def row_of(self, key: str) -> int | None:
+        return self._rows.get(key)
+
     def item_by_key(self, key: str) -> FileItem | None:
         row = self._rows.get(key)
         return None if row is None else self._items[row]

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import traceback
 
 from . import APP_ID, APP_NAME, __version__
+
+STARTED = time.perf_counter()
 
 
 def _prepare_windows() -> None:

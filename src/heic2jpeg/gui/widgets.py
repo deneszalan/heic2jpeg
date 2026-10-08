@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QModelIndex, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -280,20 +280,24 @@ class FileDelegate(QStyledItemDelegate):
         c = self._colors
         text_rect = rect.adjusted(12, 0, -8, 0)
         painter.setFont(font)
-        metrics = QFontMetrics(font)
         original = format_size(item.size)
         painter.setPen(c.q("muted"))
-        if item.status is Status.DONE:
-            arrow = f"{original}  →  "
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, arrow)
-            painter.setPen(c.q("text"))
-            painter.drawText(
-                text_rect.adjusted(metrics.horizontalAdvance(arrow), 0, 0, 0),
-                Qt.AlignmentFlag.AlignVCenter,
-                format_size(item.output_size),
-            )
-        else:
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, original)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, original)
+        if item.status is not Status.DONE:
+            return
+        # Draw the arrow ourselves: font arrow glyphs vary a lot between systems.
+        x = text_rect.left() + QFontMetrics(font).horizontalAdvance(original) + 8
+        y = text_rect.center().y() + 0.5
+        painter.setPen(QPen(c.q("muted"), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(QPointF(x, y), QPointF(x + 11, y))
+        painter.drawLine(QPointF(x + 11, y), QPointF(x + 7, y - 4))
+        painter.drawLine(QPointF(x + 11, y), QPointF(x + 7, y + 4))
+        painter.setPen(c.q("text"))
+        painter.drawText(
+            text_rect.adjusted(int(x) - text_rect.left() + 19, 0, 0, 0),
+            Qt.AlignmentFlag.AlignVCenter,
+            format_size(item.output_size),
+        )
 
     def _paint_status(self, painter: QPainter, rect: QRect, item: FileItem, font: QFont) -> None:
         text, color_name = _STATUS_STYLE[item.status]
