@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QModelIndex, QPointF, QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -263,7 +263,12 @@ class FileDelegate(QStyledItemDelegate):
         name_font.setWeight(QFont.Weight.DemiBold)
         folder_font = QFont(font)
         folder_font.setPointSizeF(max(6.0, font.pointSizeF() - 1))
-        name_metrics, folder_metrics = QFontMetrics(name_font), QFontMetrics(folder_font)
+        # Measure with the painter's own metrics: on Windows a bare QFontMetrics(font)
+        # can disagree with what the painter actually draws.
+        painter.setFont(name_font)
+        name_metrics = painter.fontMetrics()
+        painter.setFont(folder_font)
+        folder_metrics = painter.fontMetrics()
         total = name_metrics.height() + 2 + folder_metrics.height()
         top = rect.top() + (rect.height() - total) // 2
 
@@ -287,11 +292,12 @@ class FileDelegate(QStyledItemDelegate):
         painter.setFont(font)
         original = format_size(item.size)
         painter.setPen(c.q("muted"))
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, original)
+        align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        painter.drawText(text_rect, align, original)
         if item.status is not Status.DONE:
             return
         # Draw the arrow ourselves: font arrow glyphs vary a lot between systems.
-        x = text_rect.left() + QFontMetrics(font).horizontalAdvance(original) + 8
+        x = painter.boundingRect(text_rect, align, original).right() + 9
         y = text_rect.center().y() + 0.5
         painter.setPen(QPen(c.q("muted"), 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawLine(QPointF(x, y), QPointF(x + 11, y))
@@ -300,7 +306,7 @@ class FileDelegate(QStyledItemDelegate):
         painter.setPen(c.q("text"))
         painter.drawText(
             text_rect.adjusted(int(x) - text_rect.left() + 19, 0, 0, 0),
-            Qt.AlignmentFlag.AlignVCenter,
+            align,
             format_size(item.output_size),
         )
 
@@ -309,7 +315,8 @@ class FileDelegate(QStyledItemDelegate):
         color = self._colors.q(color_name)
         badge_font = QFont(font)
         badge_font.setWeight(QFont.Weight.DemiBold)
-        metrics = QFontMetrics(badge_font)
+        painter.setFont(badge_font)
+        metrics = painter.fontMetrics()
         height = metrics.height() + 8
         icon_space = _ICON_SIZE + _ICON_GAP if icon else 0
         width = metrics.horizontalAdvance(text) + icon_space + 22
@@ -332,7 +339,7 @@ class FileDelegate(QStyledItemDelegate):
             painter.setPen(self._colors.q("muted"))
             left = int(badge.right()) + 10
             note_rect = QRect(left, rect.top(), rect.right() - left - 10, rect.height())
-            note = QFontMetrics(font).elidedText(item.message, Qt.TextElideMode.ElideRight, note_rect.width())
+            note = painter.fontMetrics().elidedText(item.message, Qt.TextElideMode.ElideRight, note_rect.width())
             painter.drawText(note_rect, Qt.AlignmentFlag.AlignVCenter, note)
 
 
