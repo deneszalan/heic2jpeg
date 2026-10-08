@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QMimeData, QPointF, QSettings, Qt, QUrl
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 
 from heic2jpeg.converter import ExistingFile
 from heic2jpeg.gui.file_model import Status, format_size
@@ -43,6 +44,25 @@ def test_starts_on_the_drop_zone(make_window):
     window = make_window()
     assert window._stack.currentIndex() == 0
     assert not window._convert_button.isEnabled()
+
+
+def test_drop_photos_onto_the_window(qtbot, make_window, make_heic, tmp_path):
+    src = make_heic(tmp_path / "dropped.heic")
+    window = make_window()
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(src))])
+    pos = QPointF(window.rect().center())
+    action, button, modifier = Qt.DropAction.CopyAction, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier
+
+    enter = QDragEnterEvent(pos, action, mime, button, modifier)
+    window.dragEnterEvent(enter)
+    assert enter.isAccepted()
+    assert window._drop_zone._active
+
+    window.dropEvent(QDropEvent(pos, action, mime, button, modifier))
+    wait_for_items(qtbot, window, 1)
+    assert not window._drop_zone._active
+    assert window._model.items[0].path == src
 
 
 def test_add_folder_and_convert(qtbot, make_window, make_heic, tmp_path):
