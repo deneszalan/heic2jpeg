@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HEIC to JPEG Converter</title>
+  <meta name="description" content="Convert iPhone HEIC photos to JPEG right in your browser. Free, private: your photos never leave your device.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="lib/zip.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <img class="logo" src="icon.png" alt="" width="48" height="48">
+      <div class="titles">
+        <h1>HEIC to JPEG Converter</h1>
+        <p class="muted">Turn iPhone photos (.heic) into JPEG pictures that open everywhere.</p>
+      </div>
+      <div class="privacy" title="The conversion runs inside your browser. Nothing is uploaded.">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3"/><rect x="4.5" y="10" width="15" height="11" rx="2.5"/></svg>
+        Your photos never leave your device
+      </div>
+    </header>
+
+    <main>
+      <section id="drop-zone" class="card drop-zone">
+        <img src="icon.png" alt="" width="84" height="84">
+        <h2>Drag and drop your HEIC photos here</h2>
+        <p class="muted">You can also drop whole folders — the photos inside are found automatically.</p>
+        <div class="drop-buttons">
+          <button type="button" class="button primary large" id="choose-files">Choose photos…</button>
+          <button type="button" class="button large" id="choose-folder">Choose a folder…</button>
+        </div>
+      </section>
+
+      <section id="list-card" class="card list-card" hidden>
+        <div class="toolbar">
+          <span id="summary" class="summary"></span>
+          <span class="spacer"></span>
+          <button type="button" class="button ghost" id="add-files">Add photos…</button>
+          <button type="button" class="button ghost" id="add-folder">Add folder…</button>
+          <button type="button" class="button ghost" id="clear-list">Clear list</button>
+        </div>
+        <div class="list-head" aria-hidden="true"><span>Photo</span><span>Size</span><span>Status</span><span></span></div>
+        <ul id="items" class="items"></ul>
+      </section>
+
+      <section class="card options" aria-label="Options">
+        <label class="label" for="quality">Quality</label>
+        <div class="quality">
+          <input type="range" id="quality" min="50" max="100" step="1" value="92"
+                 title="Higher quality means sharper photos but bigger files. 90–95 is a good choice.">
+          <output id="quality-value" for="quality"></output>
+        </div>
+
+        <label class="label" for="size">Photo size</label>
+        <select id="size" title="Make photos smaller, e.g. for sending by e-mail. Sizes refer to the longest side.">
+          <option value="0">Original size</option>
+          <option value="3840">Large — 3840 px</option>
+          <option value="2048">Medium — 2048 px</option>
+          <option value="1280">Small — 1280 px (for e-mail)</option>
+        </select>
+
+        <span class="label">Details</span>
+        <div class="checks">
+          <label class="check" title="Copies the EXIF information (date taken, camera, lens…) into the JPEG.">
+            <input type="checkbox" id="keep-metadata" checked> Keep date taken and camera info
+          </label>
+          <label class="check" title="Leaves out where the photo was taken. Useful before sharing photos.">
+            <input type="checkbox" id="remove-location"> Remove location (GPS) for privacy
+          </label>
+        </div>
+      </section>
+
+      <section class="actions">
+        <div class="status-area">
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+          <progress id="progress" hidden></progress>
+        </div>
+        <div class="action-buttons">
+          <button type="button" class="button large" id="save-folder" hidden
+                  title="Save the JPEGs straight into a folder on your computer">Save to folder…</button>
+          <button type="button" class="button large" id="download" hidden>Download</button>
+          <button type="button" class="button primary large" id="convert" disabled>Convert</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer muted">
+      <a href="https://github.com/deneszalan/heic2jpeg/releases/latest">Prefer an app? Get the free Windows version</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/deneszalan/heic2jpeg">Open source (GPL-3.0)</a>
+    </footer>
+  </div>
+
+  <div id="drop-overlay" class="drop-overlay" hidden><div>Drop to add these photos</div></div>
+
+  <input type="file" id="file-input" multiple accept=".heic,.heif,.hif,image/heic,image/heif" hidden>
+  <input type="file" id="folder-input" webkitdirectory multiple hidden>
+
+  <noscript><p class="noscript">This converter needs JavaScript. Please enable it, or use the Windows app.</p></noscript>
+</body>
+</html>
