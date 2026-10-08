@@ -111,7 +111,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(QIcon(asset_path("app.png")))
         self.setAcceptDrops(True)
-        self.setMinimumSize(860, 640)
+        self.setMinimumSize(900, 660)
         self.resize(1040, 780)
 
         self._build_ui()
@@ -257,7 +257,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(self._existing_combo, 2, 1)
 
         grid.addWidget(label("Details"), 2, 2)
-        self._keep_metadata = QCheckBox("Keep date taken, camera and other photo info")
+        self._keep_metadata = QCheckBox("Keep date taken and camera info")
         self._keep_metadata.setToolTip("Copies the EXIF information (date taken, camera, lens…) into the JPEG.")
         grid.addWidget(self._keep_metadata, 2, 3, 1, 2)
 
@@ -314,6 +314,7 @@ class MainWindow(QMainWindow):
         self._browse_button.clicked.connect(self._browse_output_folder)
         self._other_folder.toggled.connect(self._on_other_folder_toggled)
         self._quality.valueChanged.connect(self._update_quality_label)
+        self._folder_edit.textChanged.connect(self._folder_edit.setToolTip)
         self._keep_metadata.toggled.connect(self._remove_location.setEnabled)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
         self._table.doubleClicked.connect(lambda index: self._open_item(index.row()))
@@ -344,6 +345,7 @@ class MainWindow(QMainWindow):
         self._keep_dates.setChecked(self._bool(s.value("keepFileDates", True)))
         folder = str(s.value("outputFolder", "") or "")
         self._folder_edit.setText(folder)
+        self._folder_edit.setToolTip(folder)
         use_other = self._bool(s.value("useOutputFolder", False)) and bool(folder)
         (self._other_folder if use_other else self._same_folder).setChecked(True)
 
