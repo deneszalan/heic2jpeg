@@ -8,6 +8,11 @@ on:
   release:
     types: [published] # a release created on github.com gets the .exe attached
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a release with this version tag, e.g. v1.0.0 (leave empty to just build)"
+        required: false
+        default: ""
 
 permissions:
   contents: write # lets version tags publish a GitHub release
@@ -59,17 +64,19 @@ jobs:
           path: selftest/
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.release || github.ref_name }}
+          TARGET: ${{ github.sha }}
         run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Release tags look like v1.2.3, got '$env:TAG'" }
           # A release created by hand on GitHub just gets the .exe attached (or replaced).
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --clobber
           } else {
-            gh release create $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --title "HEIC to JPEG Converter $env:TAG" --notes-file packaging/release-notes.md
+            gh release create $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --target $env:TARGET --title "HEIC to JPEG Converter $env:TAG" --notes-file packaging/release-notes.md
           }
           if ($LASTEXITCODE -ne 0) { throw "Publishing the release failed" }
