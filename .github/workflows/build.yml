@@ -64,19 +64,43 @@ jobs:
           path: selftest/
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release != '')
+        # Runs for version tags, manual runs with a version, and pushes to the default branch.
+        # On the default branch it publishes v<__version__> once; bump the version for a new release.
+        if: >-
+          startsWith(github.ref, 'refs/tags/v')
+          || (github.event_name == 'workflow_dispatch' && inputs.release != '')
+          || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release || github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.release }}
           TARGET: ${{ github.sha }}
         run: |
-          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Release tags look like v1.2.3, got '$env:TAG'" }
-          # A release created by hand on GitHub just gets the .exe attached (or replaced).
-          gh release view $env:TAG *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --clobber
+          $automatic = $env:EVENT -eq 'push' -and $env:REF_TYPE -eq 'branch'
+          if ($automatic) {
+            $version = (Select-String -Path src/heic2jpeg/__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+            $tag = "v$version"
+          } elseif ($env:INPUT_TAG) {
+            $tag = $env:INPUT_TAG
           } else {
-            gh release create $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --target $env:TARGET --title "HEIC to JPEG Converter $env:TAG" --notes-file packaging/release-notes.md
+            $tag = $env:REF_NAME
           }
-          if ($LASTEXITCODE -ne 0) { throw "Publishing the release failed" }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "Release tags look like v1.2.3, got '$tag'" }
+
+          gh release view $tag *> $null
+          $exists = $LASTEXITCODE -eq 0
+          if ($exists -and $automatic) {
+            "Release $tag already exists. Bump __version__ to publish a new one."
+            exit 0
+          }
+          if ($exists) {
+            # e.g. a release created by hand on GitHub: attach (or replace) the .exe.
+            gh release upload $tag "dist/HEIC-to-JPEG-Converter.exe" --clobber
+          } else {
+            gh release create $tag "dist/HEIC-to-JPEG-Converter.exe" --target $env:TARGET --title "HEIC to JPEG Converter $tag" --notes-file packaging/release-notes.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Publishing release $tag failed" }
+          "Published $tag"

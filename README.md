@@ -93,16 +93,10 @@ The result is `dist\HEIC-to-JPEG-Converter.exe`. You can check it end to end wit
 ### Automatic builds and releases
 
 GitHub Actions builds and tests the `.exe` on Windows for every push; download it from the run's **Artifacts**.
-To publish a release, either push a version tag:
 
-```bat
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-or open **Actions → Build Windows app → Run workflow** and enter the version (e.g. `v1.0.1`).
-The workflow then creates a GitHub Release with `HEIC-to-JPEG-Converter.exe` attached.
-Remember to bump `__version__` in `src/heic2jpeg/__init__.py` first.
+To publish a release, raise `__version__` in `src/heic2jpeg/__init__.py` (e.g. to `1.0.1`) and push to the
+default branch. The workflow then creates the `v1.0.1` tag and a GitHub Release with `HEIC-to-JPEG-Converter.exe`
+attached. Pushing a `v*` tag yourself, or **Actions → Build Windows app → Run workflow** with a version, works too.
 
 ## License
 
