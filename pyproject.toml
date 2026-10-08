@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,8 @@ dynamic = ["version"]
 description = "A friendly desktop app that converts HEIC/HEIF photos (e.g. from iPhones) to JPEG."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "Pillow>=11.0",
     "pillow-heif>=1.0",

@@ -102,6 +102,15 @@ git push origin v1.0.0
 
 The workflow then creates a GitHub Release with `HEIC-to-JPEG-Converter.exe` attached.
 
-### Third-party components
+## License
 
-The `.exe` bundles open-source components under their own licences, notably Qt / PySide6 (LGPLv3), Pillow (MIT-CMU), pillow-heif (BSD-3-Clause) and, inside it, libheif and libde265 (LGPLv3) and the x265 encoder (GPLv2).
+Copyright © 2026 deneszalan
+
+This program is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+The `.exe` also contains open-source components under their own licences, notably Qt / PySide6
+(LGPLv3), Pillow (MIT-CMU), pillow-heif (BSD-3-Clause) and, inside it, libheif and libde265 (LGPLv3)
+and the x265 encoder (GPLv2 or later). Their source code is available from their projects; the
+source of this program is this repository.

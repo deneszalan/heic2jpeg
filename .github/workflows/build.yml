@@ -5,6 +5,8 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  release:
+    types: [published] # a release created on github.com gets the .exe attached
   workflow_dispatch:
 
 permissions:
@@ -58,6 +60,16 @@ jobs:
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" "dist/HEIC-to-JPEG-Converter.exe" --title "HEIC to JPEG Converter ${{ github.ref_name }}" --generate-notes
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A release created by hand on GitHub just gets the .exe attached (or replaced).
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --clobber
+          } else {
+            gh release create $env:TAG "dist/HEIC-to-JPEG-Converter.exe" --title "HEIC to JPEG Converter $env:TAG" --notes-file packaging/release-notes.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Publishing the release failed" }
