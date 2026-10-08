@@ -179,14 +179,19 @@ class FileTableView(QTableView):
         super().leaveEvent(event)
 
 
+# Badge text, colour and optional icon per status. Icons are drawn as vectors rather
+# than ✓/✕ characters: those are missing from Segoe UI, and Windows' font fallback is
+# slow the first time and looks inconsistent.
 _STATUS_STYLE = {
-    Status.READY: ("Ready", "muted"),
-    Status.WAITING: ("Waiting…", "muted"),
-    Status.CONVERTING: ("Converting…", "accent"),
-    Status.DONE: ("✓  Done", "success"),
-    Status.SKIPPED: ("Skipped", "warning"),
-    Status.FAILED: ("✕  Failed", "error"),
+    Status.READY: ("Ready", "muted", None),
+    Status.WAITING: ("Waiting…", "muted", None),
+    Status.CONVERTING: ("Converting…", "accent", None),
+    Status.DONE: ("Done", "success", "check"),
+    Status.SKIPPED: ("Skipped", "warning", None),
+    Status.FAILED: ("Failed", "error", "cross"),
 }
+_ICON_SIZE = 10
+_ICON_GAP = 6
 
 
 class FileDelegate(QStyledItemDelegate):
@@ -300,22 +305,27 @@ class FileDelegate(QStyledItemDelegate):
         )
 
     def _paint_status(self, painter: QPainter, rect: QRect, item: FileItem, font: QFont) -> None:
-        text, color_name = _STATUS_STYLE[item.status]
+        text, color_name, icon = _STATUS_STYLE[item.status]
         color = self._colors.q(color_name)
         badge_font = QFont(font)
         badge_font.setWeight(QFont.Weight.DemiBold)
         metrics = QFontMetrics(badge_font)
         height = metrics.height() + 8
-        badge = QRectF(rect.left() + 12, rect.center().y() - height / 2 + 1, metrics.horizontalAdvance(text) + 22, height)
+        icon_space = _ICON_SIZE + _ICON_GAP if icon else 0
+        width = metrics.horizontalAdvance(text) + icon_space + 22
+        badge = QRectF(rect.left() + 12, rect.center().y() - height / 2 + 1, width, height)
 
         background = QColor(color)
         background.setAlphaF(0.14 if item.status is not Status.READY else 0.10)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(background)
         painter.drawRoundedRect(badge, height / 2, height / 2)
+        if icon:
+            icon_rect = QRectF(badge.left() + 11, badge.center().y() - _ICON_SIZE / 2, _ICON_SIZE, _ICON_SIZE)
+            _paint_icon(painter, icon, icon_rect, color)
         painter.setFont(badge_font)
         painter.setPen(color)
-        painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, text)
+        painter.drawText(badge.adjusted(icon_space, 0, 0, 0), Qt.AlignmentFlag.AlignCenter, text)
 
         if item.message and item.status in (Status.FAILED, Status.SKIPPED):
             painter.setFont(font)
@@ -324,3 +334,21 @@ class FileDelegate(QStyledItemDelegate):
             note_rect = QRect(left, rect.top(), rect.right() - left - 10, rect.height())
             note = QFontMetrics(font).elidedText(item.message, Qt.TextElideMode.ElideRight, note_rect.width())
             painter.drawText(note_rect, Qt.AlignmentFlag.AlignVCenter, note)
+
+
+def _paint_icon(painter: QPainter, icon: str, r: QRectF, color: QColor) -> None:
+    pen = QPen(color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    def at(fx: float, fy: float) -> QPointF:
+        return QPointF(r.left() + fx * r.width(), r.top() + fy * r.height())
+
+    if icon == "check":
+        path = QPainterPath(at(0.05, 0.55))
+        path.lineTo(at(0.38, 0.86))
+        path.lineTo(at(0.95, 0.18))
+        painter.drawPath(path)
+    elif icon == "cross":
+        painter.drawLine(at(0.15, 0.15), at(0.85, 0.85))
+        painter.drawLine(at(0.85, 0.15), at(0.15, 0.85))
