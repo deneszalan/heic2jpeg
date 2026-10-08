@@ -16,6 +16,10 @@ Open **https://deneszalan.github.io/heic2jpeg/**, drop your photos (or a folder)
 **Save to folder…** to put the JPEGs straight into a folder. The online version has the same quality, size, photo-details
 and location options as the Windows program.
 
+**On iPhone and iPad**, open the page in Safari, tap **Choose photos…** and pick photos from your library or the Files
+app. When they're converted, tap **Save to Photos…** and choose **Save Images** to put the JPEGs into your Photos library.
+(Photos too large for Safari, above about 16 megapixels, are made slightly smaller; the row says so.)
+
 ## Download the Windows program
 
 1. Open the [**Releases**](../../releases) page and download **`HEIC-to-JPEG-Converter.exe`**.

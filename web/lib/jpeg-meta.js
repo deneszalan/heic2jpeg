@@ -1,6 +1,7 @@
 /*
  * Puts EXIF data and an ICC colour profile into a JPEG made by the browser
- * (browsers' JPEG encoders write neither).
+ * (browsers' JPEG encoders write neither), and reads/edits the metadata of
+ * existing JPEGs without re-encoding them.
  *
  * The EXIF block is edited in place:
  *   - Orientation is set to 1 (libheif already rotated the pixels),
@@ -95,7 +96,7 @@
     try {
       const tiff = new Tiff(tiffBytes.slice());
       const ifd0 = tiff.u32(4);
-      tiff.setInteger(tiff.find(ifd0, TAG_ORIENTATION), 1);
+      if (options.resetOrientation !== false) tiff.setInteger(tiff.find(ifd0, TAG_ORIENTATION), 1);
 
       const exifPointer = tiff.find(ifd0, TAG_EXIF_IFD);
       if (exifPointer && options.width && options.height) {
@@ -157,38 +158,78 @@
     return list;
   }
 
-  /**
-   * Insert metadata into a JPEG: SOI, JFIF (if present), Exif, ICC, then the rest.
-   * Any Exif/ICC segments the browser wrote are replaced.
-   */
-  function addJpegMetadata(jpeg, metadata) {
-    const bytes = jpeg instanceof Uint8Array ? jpeg : new Uint8Array(jpeg);
+  function isJfif(seg) { return seg.marker === 0xe0 && seg.id.startsWith("JFIF"); }
+  function isExif(seg) { return seg.marker === 0xe1 && seg.id.startsWith("Exif\0"); }
+  function isXmp(seg) { return seg.marker === 0xe1 && seg.id.startsWith("http://ns.adobe.com/xap/1.0/"); }
+  function isIcc(seg) { return seg.marker === 0xe2 && seg.id.startsWith("ICC_PROFILE\0"); }
+
+  /** Header segments of a JPEG up to the image data: {segments: [{marker, id, bytes}], dataStart}. */
+  function readSegments(bytes) {
     if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new Error("Not a JPEG");
-    const head = [bytes.subarray(0, 2)];
+    const segments = [];
     let pos = 2;
-    let jfif = null;
-    // Walk the header segments up to the image data.
     while (pos + 4 <= bytes.length && bytes[pos] === 0xff) {
       const marker = bytes[pos + 1];
+      if (marker === 0xff) { pos++; continue; } // fill byte
       if (marker === 0xda || marker === 0xd9) break; // start of scan / end of image
       const length = (bytes[pos + 2] << 8) | bytes[pos + 3];
+      if (length < 2 || pos + 2 + length > bytes.length) throw new Error("Damaged JPEG");
       const seg = bytes.subarray(pos, pos + 2 + length);
-      const id = String.fromCharCode.apply(null, seg.subarray(4, 15));
-      if (marker === 0xe0 && id.startsWith("JFIF") && !jfif) jfif = seg;
-      else if (!(marker === 0xe1 && id.startsWith("Exif")) && !(marker === 0xe2 && id.startsWith("ICC_PROFILE"))) break;
+      segments.push({ marker: marker, id: String.fromCharCode.apply(null, seg.subarray(4, 4 + 29)), bytes: seg });
       pos += 2 + length;
     }
-    if (jfif) head.push(jfif);
-    if (metadata.exif) {
-      const app1 = exifSegment(metadata.exif);
-      if (app1) head.push(app1);
-    }
-    if (metadata.icc) head.push.apply(head, iccSegments(metadata.icc));
-    head.push(bytes.subarray(pos));
-    return concat(head);
+    return { segments: segments, dataStart: pos };
   }
 
-  const api = { prepareExif: prepareExif, addJpegMetadata: addJpegMetadata };
+  /**
+   * Metadata of an existing JPEG: {exif: TIFF bytes|null, icc: Uint8Array|null, width, height}.
+   * Used when a phone has already turned the photo into a JPEG.
+   */
+  function readJpegMetadata(input) {
+    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const result = { exif: null, icc: null, width: 0, height: 0 };
+    const chunks = [];
+    for (const seg of readSegments(bytes).segments) {
+      if (isExif(seg) && !result.exif) result.exif = seg.bytes.slice(10);
+      else if (isIcc(seg)) chunks.push({ order: seg.bytes[16], data: seg.bytes.subarray(18) });
+      else if (seg.marker >= 0xc0 && seg.marker <= 0xcf && seg.marker !== 0xc4 && seg.marker !== 0xc8 && seg.marker !== 0xcc) {
+        result.height = (seg.bytes[5] << 8) | seg.bytes[6];
+        result.width = (seg.bytes[7] << 8) | seg.bytes[8];
+      }
+    }
+    if (chunks.length) {
+      chunks.sort(function (a, b) { return a.order - b.order; });
+      result.icc = concat(chunks.map(function (c) { return c.data; }));
+    }
+    return result;
+  }
+
+  /**
+   * Rebuild a JPEG's metadata without touching the image data:
+   * SOI, JFIF (if present), Exif, ICC, then every other segment in its original order.
+   * Existing Exif/ICC segments are replaced; XMP is kept only if `keepXmp` (it can hold a location too).
+   */
+  function rewriteJpegMetadata(jpeg, metadata) {
+    const bytes = jpeg instanceof Uint8Array ? jpeg : new Uint8Array(jpeg);
+    const parsed = readSegments(bytes);
+    const jfif = parsed.segments.find(isJfif);
+    const out = [bytes.subarray(0, 2)];
+    if (jfif) out.push(jfif.bytes);
+    if (metadata.exif) {
+      const app1 = exifSegment(metadata.exif);
+      if (app1) out.push(app1);
+    }
+    if (metadata.icc) out.push.apply(out, iccSegments(metadata.icc));
+    for (const seg of parsed.segments) {
+      if (seg === jfif || isExif(seg) || isIcc(seg)) continue;
+      if (isXmp(seg) && !metadata.keepXmp) continue;
+      out.push(seg.bytes);
+    }
+    out.push(bytes.subarray(parsed.dataStart));
+    return concat(out);
+  }
+
+  const api = { prepareExif: prepareExif, readJpegMetadata: readJpegMetadata, rewriteJpegMetadata: rewriteJpegMetadata };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.JpegMeta = api;
 })(typeof self !== "undefined" ? self : this);

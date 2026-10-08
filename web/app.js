@@ -4,7 +4,22 @@
   "use strict";
 
   const HEIC_NAME = /\.(heic|heif|hif)$/i;
+  const JPEG_NAME = /\.jpe?g$/i;
   const SETTINGS_KEY = "heic2jpeg.settings";
+  // iPhone and iPad (iPadOS presents itself as a Mac with a touch screen).
+  const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  // Safari on iPhone/iPad allows images of at most 16.7 megapixels and has little memory to spare.
+  const limits = { maxPixels: IS_IOS ? 4096 * 4096 : 0, workers: IS_IOS ? 1 : 0 };
+  const IS_TOUCH = !!(window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches);
+  // On phones the share sheet is the way to put photos into the Photos app.
+  const SHOW_SHARE = (IS_IOS || IS_TOUCH) && (function () {
+    try {
+      return !!(navigator.canShare && navigator.canShare({ files: [new File([new Uint8Array(1)], "test.jpg", { type: "image/jpeg" })] }));
+    } catch (error) {
+      return false;
+    }
+  })();
   const ICON = {
     check: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 6.6 4.6 9.4 10.6 2.4"/></svg>',
     cross: '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>',
@@ -30,6 +45,7 @@
     convert: $("convert"),
     download: $("download"),
     saveFolder: $("save-folder"),
+    share: $("share"),
     clear: $("clear-list"),
     addFiles: $("add-files"),
     addFolder: $("add-folder"),
@@ -128,12 +144,24 @@
     return {
       quality: Number(els.quality.value),
       maxSize: Number(els.size.value) || null,
+      maxPixels: limits.maxPixels,
       keepMetadata: els.keepMetadata.checked,
       removeLocation: els.keepMetadata.checked && els.removeLocation.checked,
     };
   }
 
   // ---------------------------------------------------------------- adding photos
+  /**
+   * HEIC photos are always taken. JPEGs only when picked one by one: an iPhone may already
+   * have converted the photos while they were being picked, and they still need saving.
+   */
+  function isCandidate(source) {
+    const file = source.file;
+    if (file.name.startsWith("._")) return false;
+    if (HEIC_NAME.test(file.name) || /^image\/hei[cf]/.test(file.type)) return true;
+    return !!source.single && (JPEG_NAME.test(file.name) || file.type === "image/jpeg");
+  }
+
   /** sources: [{file, folder, relDir}] where folder is shown to the user and relDir is kept in the ZIP. */
   function addSources(sources, ignored) {
     const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -144,7 +172,7 @@
     let duplicates = 0;
     for (const source of sources) {
       const file = source.file;
-      if (!HEIC_NAME.test(file.name) || file.name.startsWith("._")) continue;
+      if (!isCandidate(source)) continue;
       const key = [source.folder, file.name, file.size, file.lastModified].join("|");
       if (keys.has(key)) { duplicates++; continue; }
       keys.add(key);
@@ -156,6 +184,7 @@
         relDir: source.relDir,
         status: "ready",
         error: "",
+        note: "",
         blob: null,
         crc: 0,
         previewUrl: null,
@@ -183,10 +212,11 @@
       if (parts.length > 1) {
         const dirs = parts.slice(0, -1);
         if (dirs.some(function (d) { return d.startsWith("."); })) continue;
-        sources.push({ file: file, folder: dirs.join("/"), relDir: dirs.slice(1).join("/") });
+        sources.push({ file: file, folder: dirs.join("/"), relDir: dirs.slice(1).join("/"), single: false });
       } else {
-        if (!HEIC_NAME.test(file.name)) ignored++;
-        sources.push({ file: file, folder: "", relDir: "" });
+        const source = { file: file, folder: "", relDir: "", single: true };
+        if (!isCandidate(source)) ignored++;
+        sources.push(source);
       }
     }
     return { sources: sources, ignored: ignored };
@@ -207,7 +237,7 @@
   async function walk(entry, rootName, relParts, out) {
     if (entry.isFile) {
       const file = await new Promise(function (resolve, reject) { entry.file(resolve, reject); });
-      out.push({ file: file, folder: [rootName].concat(relParts).join("/"), relDir: relParts.join("/") });
+      out.push({ file: file, folder: [rootName].concat(relParts).join("/"), relDir: relParts.join("/"), single: false });
     } else if (entry.isDirectory && !entry.name.startsWith(".")) {
       for (const child of await readAllEntries(entry.createReader())) {
         await walk(child, rootName, child.isDirectory ? relParts.concat(child.name) : relParts, out);
@@ -216,33 +246,23 @@
   }
 
   async function fromDataTransfer(dataTransfer) {
-    // Entries must be taken synchronously, before the first await.
-    const entries = [];
-    const plainFiles = [];
+    // Everything must be taken from the drop event synchronously, before the first await.
+    const folders = [];
+    const files = [];
     for (const item of Array.from(dataTransfer.items || [])) {
       if (item.kind !== "file") continue;
       const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-      if (entry) entries.push(entry);
-      else if (item.getAsFile()) plainFiles.push(item.getAsFile());
-    }
-    if (!entries.length && !plainFiles.length) return fromFileList(Array.from(dataTransfer.files || []));
-
-    const sources = [];
-    let ignored = 0;
-    for (const file of plainFiles) {
-      if (!HEIC_NAME.test(file.name)) ignored++;
-      sources.push({ file: file, folder: "", relDir: "" });
-    }
-    for (const entry of entries) {
-      if (entry.isDirectory) {
-        await walk(entry, entry.name, [], sources);
+      if (entry && entry.isDirectory) {
+        folders.push(entry);
       } else {
-        const file = await new Promise(function (resolve, reject) { entry.file(resolve, reject); });
-        if (!HEIC_NAME.test(file.name)) ignored++;
-        sources.push({ file: file, folder: "", relDir: "" });
+        const file = item.getAsFile();
+        if (file) files.push(file);
       }
     }
-    return { sources: sources, ignored: ignored };
+    if (!folders.length && !files.length) return fromFileList(Array.from(dataTransfer.files || []));
+    const result = fromFileList(files);
+    for (const folder of folders) await walk(folder, folder.name, [], result.sources);
+    return result;
   }
 
   // ---------------------------------------------------------------- list rows
@@ -275,7 +295,7 @@
     badge.appendChild(document.createTextNode(status.text));
 
     const note = row.querySelector(".note");
-    note.textContent = item.status === "failed" ? item.error : "";
+    note.textContent = item.status === "failed" ? item.error : item.status === "done" ? item.note : "";
     note.title = note.textContent;
 
     const size = row.querySelector(".size");
@@ -318,7 +338,7 @@
   // ---------------------------------------------------------------- converting
   function createWorkers() {
     if (run.workers.length) return run.workers;
-    const count = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+    const count = limits.workers || Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
     for (let i = 0; i < count; i++) run.workers.push(makeWorker());
     return run.workers;
   }
@@ -361,7 +381,7 @@
     run.queue = todo.slice();
     run.done = 0;
     run.started = performance.now();
-    for (const item of todo) setItemStatus(item, "waiting", { error: "", blob: null });
+    for (const item of todo) setItemStatus(item, "waiting", { error: "", note: "", blob: null });
     els.progress.max = todo.length;
     els.progress.value = 0;
     els.progress.hidden = false;
@@ -390,7 +410,8 @@
         setItemStatus(item, "done", {
           blob: new Blob([message.jpeg], { type: "image/jpeg" }),
           crc: message.crc,
-          previewUrl: URL.createObjectURL(message.preview),
+          previewUrl: message.preview ? URL.createObjectURL(message.preview) : item.previewUrl,
+          note: message.limited ? "Made smaller: too big for this browser" : "",
         });
       } else {
         setItemStatus(item, "failed", { error: message.error });
@@ -427,7 +448,9 @@
       text = "Stopped. " + plural(converted) + " converted, the rest are still in the list.";
       kind = "warning";
     } else if (converted) {
-      text = "Done! " + plural(converted) + " converted in " + elapsed + ". Click Download to save " + (converted === 1 ? "it." : "them.");
+      text = "Done! " + plural(converted) + " converted in " + elapsed + ". " + (SHOW_SHARE && IS_IOS
+        ? "Tap Save to Photos, then choose “Save " + (converted === 1 ? "Image" : converted + " Images") + "”."
+        : "Click Download to save " + (converted === 1 ? "it." : "them."));
       kind = "success";
     } else {
       text = "";
@@ -473,6 +496,20 @@
       setStatus("Downloading " + plural(entries.length) + " as a ZIP file.", "success");
     } catch (error) {
       setStatus(error.message, "error");
+    }
+  }
+
+  async function shareAll() {
+    const entries = outputEntries();
+    if (!entries.length) return;
+    const files = entries.map(function (e) {
+      return new File([e.item.blob], e.name.split("/").pop(), { type: "image/jpeg", lastModified: e.item.file.lastModified });
+    });
+    try {
+      await navigator.share({ files: files });
+    } catch (error) {
+      if (error.name === "AbortError") return; // the share sheet was closed
+      setStatus("Could not open the share sheet (" + error.message + "). Use Download instead.", "error");
     }
   }
 
@@ -548,9 +585,12 @@
       convert.disabled = count === 0;
     }
 
+    const saveNext = !run.active && !ready && done > 0;
+    els.share.hidden = !SHOW_SHARE || run.active || done === 0;
+    els.share.classList.toggle("primary", saveNext);
     els.download.hidden = run.active || done === 0;
     els.download.textContent = done === 1 ? "Download JPEG" : "Download all (ZIP)";
-    els.download.classList.toggle("primary", !run.active && !ready && done > 0);
+    els.download.classList.toggle("primary", saveNext && !SHOW_SHARE);
     els.saveFolder.hidden = run.active || done === 0 || typeof window.showDirectoryPicker !== "function";
     els.clear.disabled = run.active || count === 0;
     for (const control of [els.quality, els.size, els.keepMetadata]) control.disabled = run.active;
@@ -593,6 +633,9 @@
   });
   els.download.addEventListener("click", downloadAll);
   els.saveFolder.addEventListener("click", saveToFolder);
+  els.share.addEventListener("click", shareAll);
+  els.share.textContent = IS_IOS ? "Save to Photos…" : "Share…";
+  document.documentElement.classList.toggle("ios", IS_IOS);
 
   els.quality.addEventListener("input", updateQualityLabel);
   for (const control of [els.quality, els.size, els.removeLocation]) control.addEventListener("change", saveSettings);
@@ -646,5 +689,5 @@
   updateState();
 
   // For automated tests.
-  window.heic2jpeg = { items: items, run: run, addSources: addSources };
+  window.heic2jpeg = { items: items, run: run, limits: limits, addSources: addSources };
 })();

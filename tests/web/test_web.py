@@ -43,8 +43,13 @@ def site_url():
 
 @pytest.fixture(scope="module")
 def browser():
+    # WEB_BROWSER=webkit runs the same tests in Safari's engine.
+    engine = os.environ.get("WEB_BROWSER", "chromium")
     with playwright_api.sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None)
+        if engine == "chromium":
+            browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None)
+        else:
+            browser = getattr(p, engine).launch()
         yield browser
         browser.close()
 
@@ -240,3 +245,122 @@ def test_settings_are_remembered(page, site_url):
     assert page.input_value("#quality") == "77"
     assert not page.is_checked("#keep-metadata")
     assert page.is_disabled("#remove-location")
+
+
+# --- iPhone: Safari may hand over photos already converted to JPEG -----------------------
+
+
+def make_jpeg(path: Path, size=(400, 200), orientation: int | None = None) -> Path:
+    image = Image.effect_noise(size, 40).convert("RGB")
+    image.save(path, format="JPEG", quality=90, exif=build_exif(orientation=orientation).tobytes())
+    return path
+
+
+def image_data(jpeg: bytes) -> bytes:
+    """The compressed image data (from Start of Scan on) of a JPEG."""
+    return jpeg[jpeg.index(b"\xff\xda"):]
+
+
+def test_picked_jpeg_is_kept_without_quality_loss(page, tmp_path):
+    src = make_jpeg(tmp_path / "IMG_0007.jpg", orientation=6)
+    page.check("#remove-location")
+    page.set_input_files("#file-input", str(src))
+    wait_for_status(page, "Added 1 photo.")
+    convert(page)
+
+    out = download(page, tmp_path / "out")
+    assert out.name == "IMG_0007.jpg"
+    assert image_data(out.read_bytes()) == image_data(src.read_bytes())  # pixels untouched
+    with Image.open(out) as jpeg:
+        exif = jpeg.getexif()
+        assert exif[ExifTags.Base.Make] == "Apple"
+        assert exif[ExifTags.Base.Orientation] == 6  # pixels weren't rotated, so the tag stays
+        assert ExifTags.IFD.GPSInfo not in exif
+
+
+def test_picked_jpeg_is_resized_upright(page, tmp_path):
+    src = make_jpeg(tmp_path / "wide.jpg", size=(2000, 1000), orientation=6)
+    page.select_option("#size", "1280")
+    page.set_input_files("#file-input", str(src))
+    wait_for_status(page, "Added 1 photo.")
+    convert(page)
+
+    with Image.open(download(page, tmp_path / "out")) as jpeg:
+        assert jpeg.size == (640, 1280)  # rotated upright, then shrunk
+        assert jpeg.getexif()[ExifTags.Base.Orientation] == 1
+
+
+def test_jpegs_inside_folders_are_left_alone(page, tmp_path, make_heic):
+    root = tmp_path / "Mixed"
+    make_heic(root / "a.heic")
+    make_jpeg(root / "already.jpg")
+    page.set_input_files("#folder-input", str(root))
+    wait_for_status(page, "Added 1 photo.")
+    assert page.locator(".item .name").all_text_contents() == ["a.heic"]
+
+
+IPHONE = {
+    "viewport": {"width": 393, "height": 852},
+    "user_agent": (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+        "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+    ),
+    "device_scale_factor": 3,
+    "has_touch": True,
+}
+
+
+@pytest.fixture
+def iphone(browser, site_url):
+    options = dict(IPHONE)
+    if browser.browser_type.name != "firefox":
+        options["is_mobile"] = True
+    context = browser.new_context(accept_downloads=True, **options)
+    # Stand-in for the iOS share sheet: records what would be shared.
+    context.add_init_script(
+        """
+        navigator.canShare = () => true;
+        navigator.share = async (data) => {
+            window.shared = data.files.map(f => ({ name: f.name, type: f.type, size: f.size }));
+        };
+        """
+    )
+    page = context.new_page()
+    page.goto(site_url)
+    yield page
+    context.close()
+
+
+def test_iphone_layout_and_save_to_photos(iphone, tmp_path, make_heic):
+    assert iphone.is_hidden("#choose-folder")  # Safari on iPhone can't pick folders
+    assert iphone.is_visible("text=Convert your HEIC photos to JPEG")
+    assert iphone.evaluate("window.heic2jpeg.limits") == {"maxPixels": 4096 * 4096, "workers": 1}
+
+    photos = [make_heic(tmp_path / f"IMG_{i}.HEIC") for i in (1, 2)]
+    iphone.set_input_files("#file-input", [str(p) for p in photos])
+    wait_for_status(iphone, "Added 2 photos.")
+    status = convert(iphone)
+    assert "Tap Save to Photos, then choose “Save 2 Images”." in status
+
+    assert iphone.text_content("#share") == "Save to Photos…"
+    assert "primary" in iphone.get_attribute("#share", "class")
+    iphone.click("#share")
+    shared = iphone.wait_for_function("() => window.shared").json_value()
+    assert [(f["name"], f["type"]) for f in shared] == [("IMG_1.jpg", "image/jpeg"), ("IMG_2.jpg", "image/jpeg")]
+    assert all(f["size"] > 0 for f in shared)
+
+
+def test_photos_too_big_for_the_browser_are_shrunk(iphone, tmp_path, make_heic):
+    src = make_heic(tmp_path / "huge.heic", size=(320, 240))
+    iphone.evaluate("window.heic2jpeg.limits.maxPixels = 20000")  # pretend the limit is tiny
+    iphone.set_input_files("#file-input", str(src))
+    wait_for_status(iphone, "Added 1 photo.")
+    convert(iphone)
+
+    assert "too big for this browser" in iphone.text_content(".item .note")
+    with iphone.expect_download() as info:
+        iphone.click("#download")
+    with Image.open(info.value.path()) as jpeg:
+        width, height = jpeg.size
+        assert width * height <= 20000
+        assert abs(width / height - 320 / 240) < 0.02

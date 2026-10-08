@@ -29,11 +29,11 @@
     <main>
       <section id="drop-zone" class="card drop-zone">
         <img src="icon.png" alt="" width="84" height="84">
-        <h2>Drag and drop your HEIC photos here</h2>
-        <p class="muted">You can also drop whole folders — the photos inside are found automatically.</p>
+        <h2><span class="pointer-only">Drag and drop your HEIC photos here</span><span class="touch-only">Convert your HEIC photos to JPEG</span></h2>
+        <p class="muted"><span class="pointer-only">You can also drop whole folders — the photos inside are found automatically.</span><span class="touch-only">Pick them from your Photos library or the Files app.</span></p>
         <div class="drop-buttons">
           <button type="button" class="button primary large" id="choose-files">Choose photos…</button>
-          <button type="button" class="button large" id="choose-folder">Choose a folder…</button>
+          <button type="button" class="button large needs-folders" id="choose-folder">Choose a folder…</button>
         </div>
       </section>
 
@@ -42,7 +42,7 @@
           <span id="summary" class="summary"></span>
           <span class="spacer"></span>
           <button type="button" class="button ghost" id="add-files">Add photos…</button>
-          <button type="button" class="button ghost" id="add-folder">Add folder…</button>
+          <button type="button" class="button ghost needs-folders" id="add-folder">Add folder…</button>
           <button type="button" class="button ghost" id="clear-list">Clear list</button>
         </div>
         <div class="list-head" aria-hidden="true"><span>Photo</span><span>Size</span><span>Status</span><span></span></div>
@@ -85,6 +85,7 @@
           <button type="button" class="button large" id="save-folder" hidden
                   title="Save the JPEGs straight into a folder on your computer">Save to folder…</button>
           <button type="button" class="button large" id="download" hidden>Download</button>
+          <button type="button" class="button large" id="share" hidden>Save to Photos…</button>
           <button type="button" class="button primary large" id="convert" disabled>Convert</button>
         </div>
       </section>
